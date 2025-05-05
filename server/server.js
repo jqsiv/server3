@@ -123,22 +123,61 @@ app.get("/", (req, res) => {
         <style>
           body { font-family: Arial, sans-serif; padding: 20px; }
           h1 { color: #333; }
-          .status { 
-            background: #f0f0f0; 
-            padding: 10px; 
-            border-radius: 5px; 
-            margin-top: 20px;
-          }
+          .status { background: #f0f0f0; padding: 10px; border-radius: 5px; }
+          #data { margin-top: 20px; }
+          .device-data { background: #e9f7ef; padding: 10px; margin: 5px 0; border-radius: 5px; }
         </style>
       </head>
       <body>
         <h1>ESP32 WebSocket Server</h1>
         <p>Server is running. Connect your ESP32 devices via WebSocket.</p>
+        
         <div class="status">
           <h3>Connection Status:</h3>
           <p>Port: ${PORT}</p>
           <p>WebSocket Endpoint: <code>wss://${req.hostname}</code></p>
+          <p id="ws-status">WebSocket: Not connected</p>
         </div>
+
+        <div id="data">
+          <h3>Live Data:</h3>
+          <div id="device-data"></div>
+        </div>
+
+        <script>
+          // Connect to WebSocket
+          const socket = new WebSocket("wss://${req.hostname}");
+
+          socket.onopen = () => {
+            document.getElementById("ws-status").textContent = "WebSocket: Connected!";
+          };
+
+          socket.onclose = () => {
+            document.getElementById("ws-status").textContent = "WebSocket: Disconnected";
+          };
+
+          // Handle incoming messages
+          socket.onmessage = (event) => {
+            const data = JSON.parse(event.data);
+            const deviceDataDiv = document.getElementById("device-data");
+
+            if (data.type === "data") {
+              // Display temperature/humidity data
+              const deviceDiv = document.createElement("div");
+              deviceDiv.className = "device-data";
+              deviceDiv.innerHTML = `
+                <strong>Device: ${data.from}</strong><br>
+                Temperature: ${data.data.temperature}°C<br>
+                Humidity: ${data.data.humidity}%
+                <small>${new Date(data.timestamp).toLocaleTimeString()}</small>
+              `;
+              deviceDataDiv.prepend(deviceDiv);
+            }
+            else if (data.type === "deviceList") {
+              console.log("Connected devices:", data.devices);
+            }
+          };
+        </script>
       </body>
     </html>
   `);
