@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -13,53 +13,88 @@ export function WebSocketMonitor() {
   const [connectedDevices, setConnectedDevices] = useState<string[]>([])
   const [message, setMessage] = useState("")
   const [selectedDevice, setSelectedDevice] = useState("all")
+  const [connectionStatus, setConnectionStatus] = useState<"connected" | "disconnected" | "connecting">("disconnected")
+  const wsRef = useRef<WebSocket | null>(null)
 
-  // In a real app, this would connect to your Heroku server
-  // For demo purposes, we'll simulate some device connections and messages
   useEffect(() => {
-    // Simulate connected devices
-    setConnectedDevices(["ESP32-Device1", "ESP32-Device2"])
+    // Connect to your Heroku WebSocket server
+    // Adjust the URL to match your Heroku app URL
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const serverUrl = process.env.NODE_ENV === 'production' 
+      ? `${protocol}//${window.location.host}` 
+      : 'ws://localhost:3000';
+    
+    const ws = new WebSocket(`${serverUrl}?id=monitor-client`);
+    wsRef.current = ws;
+    setConnectionStatus("connecting");
 
-    // Simulate incoming messages
-    const demoMessages = [
-      { device: "ESP32-Device1", message: "Connected to server", timestamp: new Date().toLocaleTimeString() },
-      { device: "ESP32-Device2", message: "Connected to server", timestamp: new Date().toLocaleTimeString() },
-      { device: "ESP32-Device1", message: "Temperature: 24.5°C", timestamp: new Date().toLocaleTimeString() },
-      { device: "ESP32-Device2", message: "Humidity: 65%", timestamp: new Date().toLocaleTimeString() },
-    ]
+    ws.onopen = () => {
+      console.log("Connected to WebSocket server");
+      setConnectionStatus("connected");
+    };
 
-    setMessages(demoMessages)
-
-    // Simulate new messages coming in periodically
-    const interval = setInterval(() => {
-      const device = Math.random() > 0.5 ? "ESP32-Device1" : "ESP32-Device2"
-      const value = (Math.random() * 10 + 20).toFixed(1)
-      const newMessage = {
-        device,
-        message: device === "ESP32-Device1" ? `Temperature: ${value}°C` : `Humidity: ${value}%`,
-        timestamp: new Date().toLocaleTimeString(),
+    ws.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        console.log("Received message:", data);
+        
+        if (data.type === "deviceList") {
+          setConnectedDevices(data.devices);
+        } else if (data.type === "data" || data.type === "connection" || data.type === "command") {
+          const newMessage = {
+            device: data.from || data.type === "connection" ? "Server" : "Unknown",
+            message: data.type === "data" ? JSON.stringify(data.data) : 
+                    data.type === "command" ? `Command: ${data.command}` : 
+                    data.message || JSON.stringify(data),
+            timestamp: new Date(data.timestamp).toLocaleTimeString()
+          };
+          
+          setMessages(prev => [...prev, newMessage]);
+        }
+      } catch (error) {
+        console.error("Error parsing WebSocket message:", error);
       }
+    };
 
-      setMessages((prev) => [...prev, newMessage])
-    }, 5000)
+    ws.onerror = (error) => {
+      console.error("WebSocket error:", error);
+      setConnectionStatus("disconnected");
+    };
 
-    return () => clearInterval(interval)
-  }, [])
+    ws.onclose = () => {
+      console.log("WebSocket connection closed");
+      setConnectionStatus("disconnected");
+    };
+
+    // Clean up WebSocket connection when component unmounts
+    return () => {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.close();
+      }
+    };
+  }, []);
 
   const sendMessage = () => {
-    if (!message.trim()) return
+    if (!message.trim() || !wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
 
-    // In a real app, this would send the message to your Heroku server
-    // For demo purposes, we'll just add it to our messages list
+    const messagePayload = {
+      type: "command",
+      target: selectedDevice !== "all" ? selectedDevice : undefined,
+      command: message
+    };
+
+    wsRef.current.send(JSON.stringify(messagePayload));
+    
+    // Add sent message to the local display
     const newMessage = {
-      device: "Server",
+      device: "You",
       message: `To ${selectedDevice}: ${message}`,
       timestamp: new Date().toLocaleTimeString(),
-    }
+    };
 
-    setMessages((prev) => [...prev, newMessage])
-    setMessage("")
-  }
+    setMessages(prev => [...prev, newMessage]);
+    setMessage("");
+  };
 
   return (
     <div className="grid gap-6 md:grid-cols-2">
@@ -69,12 +104,26 @@ export function WebSocketMonitor() {
           <CardDescription>Currently connected ESP32 devices</CardDescription>
         </CardHeader>
         <CardContent>
+          <div className="flex items-center gap-2 mb-4">
+            <div className={`h-3 w-3 rounded-full ${
+              connectionStatus === "connected" ? "bg-green-500" : 
+              connectionStatus === "connecting" ? "bg-yellow-500" : "bg-red-500"
+            }`}></div>
+            <span className="text-sm">
+              {connectionStatus === "connected" ? "Connected to server" : 
+               connectionStatus === "connecting" ? "Connecting..." : "Disconnected"}
+            </span>
+          </div>
           <div className="flex flex-wrap gap-2">
-            {connectedDevices.map((device) => (
-              <Badge key={device} variant="outline" className="py-1">
-                {device} <span className="ml-2 h-2 w-2 rounded-full bg-green-500"></span>
-              </Badge>
-            ))}
+            {connectedDevices.length > 0 ? (
+              connectedDevices.map((device) => (
+                <Badge key={device} variant="outline" className="py-1">
+                  {device} <span className="ml-2 h-2 w-2 rounded-full bg-green-500"></span>
+                </Badge>
+              ))
+            ) : (
+              <p className="text-sm text-muted-foreground">No devices connected</p>
+            )}
           </div>
         </CardContent>
       </Card>
@@ -88,30 +137,14 @@ export function WebSocketMonitor() {
           <Tabs defaultValue="all">
             <TabsList>
               <TabsTrigger value="all">All Messages</TabsTrigger>
-              <TabsTrigger value="ESP32-Device1">Device 1</TabsTrigger>
-              <TabsTrigger value="ESP32-Device2">Device 2</TabsTrigger>
+              {connectedDevices.map(device => (
+                <TabsTrigger key={device} value={device}>{device}</TabsTrigger>
+              ))}
             </TabsList>
             <TabsContent value="all" className="mt-4">
               <ScrollArea className="h-[300px] rounded-md border p-4">
-                {messages.map((msg, i) => (
-                  <div key={i} className="mb-2 pb-2 border-b last:border-0">
-                    <div className="flex justify-between">
-                      <span className="font-medium">{msg.device}</span>
-                      <span className="text-xs text-muted-foreground">{msg.timestamp}</span>
-                    </div>
-                    <p className="text-sm">{msg.message}</p>
-                  </div>
-                ))}
-              </ScrollArea>
-            </TabsContent>
-            <TabsContent value="ESP32-Device1" className="mt-4">
-              <ScrollArea className="h-[300px] rounded-md border p-4">
-                {messages
-                  .filter(
-                    (msg) =>
-                      msg.device === "ESP32-Device1" || (msg.device === "Server" && msg.message.includes("Device1")),
-                  )
-                  .map((msg, i) => (
+                {messages.length > 0 ? (
+                  messages.map((msg, i) => (
                     <div key={i} className="mb-2 pb-2 border-b last:border-0">
                       <div className="flex justify-between">
                         <span className="font-medium">{msg.device}</span>
@@ -119,27 +152,39 @@ export function WebSocketMonitor() {
                       </div>
                       <p className="text-sm">{msg.message}</p>
                     </div>
-                  ))}
+                  ))
+                ) : (
+                  <p className="text-sm text-muted-foreground">No messages yet</p>
+                )}
               </ScrollArea>
             </TabsContent>
-            <TabsContent value="ESP32-Device2" className="mt-4">
-              <ScrollArea className="h-[300px] rounded-md border p-4">
-                {messages
-                  .filter(
-                    (msg) =>
-                      msg.device === "ESP32-Device2" || (msg.device === "Server" && msg.message.includes("Device2")),
-                  )
-                  .map((msg, i) => (
-                    <div key={i} className="mb-2 pb-2 border-b last:border-0">
-                      <div className="flex justify-between">
-                        <span className="font-medium">{msg.device}</span>
-                        <span className="text-xs text-muted-foreground">{msg.timestamp}</span>
+            {connectedDevices.map(device => (
+              <TabsContent key={device} value={device} className="mt-4">
+                <ScrollArea className="h-[300px] rounded-md border p-4">
+                  {messages.filter(msg => 
+                    msg.device === device || 
+                    (msg.device === "Server" && msg.message.includes(device)) ||
+                    (msg.device === "You" && msg.message.includes(device))
+                  ).length > 0 ? (
+                    messages.filter(msg => 
+                      msg.device === device || 
+                      (msg.device === "Server" && msg.message.includes(device)) ||
+                      (msg.device === "You" && msg.message.includes(device))
+                    ).map((msg, i) => (
+                      <div key={i} className="mb-2 pb-2 border-b last:border-0">
+                        <div className="flex justify-between">
+                          <span className="font-medium">{msg.device}</span>
+                          <span className="text-xs text-muted-foreground">{msg.timestamp}</span>
+                        </div>
+                        <p className="text-sm">{msg.message}</p>
                       </div>
-                      <p className="text-sm">{msg.message}</p>
-                    </div>
-                  ))}
-              </ScrollArea>
-            </TabsContent>
+                    ))
+                  ) : (
+                    <p className="text-sm text-muted-foreground">No messages for this device</p>
+                  )}
+                </ScrollArea>
+              </TabsContent>
+            ))}
           </Tabs>
         </CardContent>
         <CardFooter>
@@ -148,6 +193,7 @@ export function WebSocketMonitor() {
               className="flex h-10 w-[150px] rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background"
               value={selectedDevice}
               onChange={(e) => setSelectedDevice(e.target.value)}
+              disabled={connectionStatus !== "connected"}
             >
               <option value="all">All Devices</option>
               {connectedDevices.map((device) => (
@@ -161,8 +207,14 @@ export function WebSocketMonitor() {
               value={message}
               onChange={(e) => setMessage(e.target.value)}
               className="flex-1"
+              disabled={connectionStatus !== "connected"}
             />
-            <Button onClick={sendMessage}>Send</Button>
+            <Button 
+              onClick={sendMessage} 
+              disabled={connectionStatus !== "connected" || !message.trim()}
+            >
+              Send
+            </Button>
           </div>
         </CardFooter>
       </Card>
