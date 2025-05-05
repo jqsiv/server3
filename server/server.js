@@ -113,7 +113,36 @@ function sendToDevice(targetId, message) {
     }
   })
 }
-
+// Serve a basic HTML page at the root
+app.get("/", (req, res) => {
+  res.send(`
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <title>ESP32 WebSocket Server</title>
+        <style>
+          body { font-family: Arial, sans-serif; padding: 20px; }
+          h1 { color: #333; }
+          .status { 
+            background: #f0f0f0; 
+            padding: 10px; 
+            border-radius: 5px; 
+            margin-top: 20px;
+          }
+        </style>
+      </head>
+      <body>
+        <h1>ESP32 WebSocket Server</h1>
+        <p>Server is running. Connect your ESP32 devices via WebSocket.</p>
+        <div class="status">
+          <h3>Connection Status:</h3>
+          <p>Port: ${PORT}</p>
+          <p>WebSocket Endpoint: <code>wss://${req.hostname}</code></p>
+        </div>
+      </body>
+    </html>
+  `);
+});
 // Start the server
 server.listen(PORT, () => {
   console.log(`Server is listening on port ${PORT}`)
