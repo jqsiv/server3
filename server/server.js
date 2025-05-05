@@ -113,7 +113,6 @@ function sendToDevice(targetId, message) {
     }
   })
 }
-// Serve a basic HTML page at the root
 app.get("/", (req, res) => {
   res.send(`
     <!DOCTYPE html>
@@ -135,7 +134,7 @@ app.get("/", (req, res) => {
         <div class="status">
           <h3>Connection Status:</h3>
           <p>Port: ${PORT}</p>
-          <p>WebSocket Endpoint: <code>wss://${req.hostname}</code></p>
+          <p>WebSocket Endpoint: <code>wss://${req.headers.host}</code></p>
           <p id="ws-status">WebSocket: Not connected</p>
         </div>
 
@@ -146,7 +145,7 @@ app.get("/", (req, res) => {
 
         <script>
           // Connect to WebSocket
-          const socket = new WebSocket("wss://${req.hostname}");
+          const socket = new WebSocket("wss://" + window.location.host);
 
           socket.onopen = () => {
             document.getElementById("ws-status").textContent = "WebSocket: Connected!";
@@ -165,12 +164,11 @@ app.get("/", (req, res) => {
               // Display temperature/humidity data
               const deviceDiv = document.createElement("div");
               deviceDiv.className = "device-data";
-              deviceDiv.innerHTML = `
-                <strong>Device: ${data.from}</strong><br>
-                Temperature: ${data.data.temperature}°C<br>
-                Humidity: ${data.data.humidity}%
-                <small>${new Date(data.timestamp).toLocaleTimeString()}</small>
-              `;
+              deviceDiv.innerHTML = 
+                "<strong>Device: " + data.from + "</strong><br>" +
+                "Temperature: " + data.data.temperature + "°C<br>" +
+                "Humidity: " + data.data.humidity + "%" +
+                "<small>" + new Date(data.timestamp).toLocaleTimeString() + "</small>";
               deviceDataDiv.prepend(deviceDiv);
             }
             else if (data.type === "deviceList") {
